@@ -7,35 +7,40 @@ const replicate = new Replicate({
 
 export async function POST(request: Request) {
   try {
-    const { prompt } = await request.json();
+    const body = await request.json();
+    const { model, ...params } = body;
 
-    if (!prompt) {
+    if (!model) {
       return NextResponse.json(
-        { error: "Prompt is required" },
+        { error: "Model is required" },
         { status: 400 }
       );
     }
 
-    const output = await replicate.run("black-forest-labs/flux-schnell", {
-      input: {
-        prompt,
-        num_outputs: 1,
-        aspect_ratio: "1:1",
-        output_format: "webp",
-        output_quality: 80,
-        go_fast: true,
-      },
-    }) as string[];
+    const output = await replicate.run(model, {
+      input: params,
+    });
 
-    if (!output || !output[0]) {
-      throw new Error("No image was generated");
+    // Handle different response formats
+    let imageUrl: string;
+    if (Array.isArray(output)) {
+      imageUrl = output[0];
+    } else if (typeof output === 'object' && output !== null) {
+      // Some models might return an object with the image URL
+      imageUrl = (output as any).image || Object.values(output)[0];
+    } else if (typeof output === 'string') {
+      imageUrl = output;
+    } else {
+      throw new Error("Unexpected response format from model");
     }
 
-    return NextResponse.json({ imageUrl: output[0] });
+    if (!imageUrl || !imageUrl.startsWith('http')) {
+      throw new Error("Invalid image URL generated");
+    }
+
+    return NextResponse.json({ imageUrl });
   } catch (error) {
     console.error("Error generating image:", error);
-    
-    // More detailed error message for debugging
     const errorMessage = error instanceof Error ? error.message : "Failed to generate image";
     console.log("Detailed error:", errorMessage);
     

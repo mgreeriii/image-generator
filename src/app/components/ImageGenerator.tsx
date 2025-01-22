@@ -4,19 +4,70 @@ import { useState } from "react";
 import Image from "next/image";
 import { InfoCircledIcon } from "@radix-ui/react-icons";
 
-interface ModelParams {
-  model: string;
-  params: {
-    prompt: string;
-    num_outputs: number;
-    aspect_ratio: string;
-    output_format: string;
-    output_quality: number;
-    go_fast: boolean;
+type ModelId = "black-forest-labs/flux-schnell" | "stability-ai/stable-diffusion-3.5-large" | "ideogram-ai/ideogram-v2";
+
+interface ModelConfig {
+  id: ModelId;
+  name: string;
+  getParams: (prompt: string) => Record<string, any>;
+}
+
+const MODEL_CONFIGS: ModelConfig[] = [
+  {
+    id: "black-forest-labs/flux-schnell",
+    name: "Flux",
+    getParams: (prompt) => ({
+      prompt,
+      num_outputs: 1,
+      aspect_ratio: "1:1",
+      output_format: "webp",
+      output_quality: 80,
+      go_fast: true,
+    }),
+  },
+  {
+    id: "stability-ai/stable-diffusion-3.5-large",
+    name: "Stable Diffusion 3.5",
+    getParams: (prompt) => ({
+      prompt,
+      cfg: 3.5,
+      steps: 28,
+      aspect_ratio: "1:1",
+      output_format: "webp",
+      output_quality: 90,
+    }),
+  },
+  {
+    id: "ideogram-ai/ideogram-v2",
+    name: "Ideogram",
+    getParams: (prompt) => ({
+      prompt,
+      resolution: "None",
+      style_type: "None",
+      aspect_ratio: "16:9",
+      magic_prompt_option: "Auto",
+    }),
+  },
+];
+
+// Utility function to convert aspect ratio to Tailwind class
+const getAspectRatioClass = (aspectRatio: string): string => {
+  const ratioMap: Record<string, string> = {
+    "1:1": "aspect-square",
+    "16:9": "aspect-video",
+    "4:3": "aspect-[4/3]",
+    "3:2": "aspect-[3/2]",
   };
+  return ratioMap[aspectRatio] || "aspect-square"; // fallback to square if ratio not found
+};
+
+interface ModelParams {
+  model: ModelId;
+  params: Record<string, any>;
 }
 
 export default function ImageGenerator() {
+  const [selectedModel, setSelectedModel] = useState<ModelId>("black-forest-labs/flux-schnell");
   const [prompt, setPrompt] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -30,23 +81,22 @@ export default function ImageGenerator() {
     setError(null);
     setImageUrl(null);
 
+    const selectedConfig = MODEL_CONFIGS.find(config => config.id === selectedModel)!;
+    const params = selectedConfig.getParams(prompt);
+
     const currentParams: ModelParams = {
-      model: "black-forest-labs/flux-schnell",
-      params: {
-        prompt,
-        num_outputs: 1,
-        aspect_ratio: "1:1",
-        output_format: "webp",
-        output_quality: 80,
-        go_fast: true,
-      },
+      model: selectedModel,
+      params
     };
 
     try {
       const response = await fetch("/api/generate-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ 
+          model: selectedModel,
+          ...params
+        }),
       });
 
       const data = await response.json();
@@ -70,61 +120,93 @@ export default function ImageGenerator() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto p-4 space-y-6">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <input
-          type="text"
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Enter your prompt (e.g., 'a magical forest at sunset')"
-          className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white dark:border-gray-600 dark:placeholder-gray-400"
-          required
-        />
-        <button
-          type="submit"
-          disabled={isLoading}
-          className="w-full bg-blue-500 text-white py-3 px-6 rounded-lg hover:bg-blue-600 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors"
-        >
-          {isLoading ? "Generating..." : "Generate Image"}
-        </button>
-      </form>
-
-      {error && (
-        <div className="text-red-500 text-center p-4 bg-red-50 rounded-lg">
-          {error}
-        </div>
-      )}
-
-      {imageUrl && (
-        <div className="space-y-4">
-          <div className="flex justify-center">
-            <div className="relative w-[512px] h-[512px]">
-              <Image
-                src={imageUrl}
-                alt="Generated image"
-                fill
-                className="rounded-lg object-cover"
-                sizes="(max-width: 768px) 100vw, 512px"
-              />
-            </div>
+    <>
+      <div className="space-y-8">
+        {/* Model Selection */}
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-2">
+          <div className="grid grid-cols-3 gap-2">
+            {MODEL_CONFIGS.map((config) => (
+              <button
+                key={config.id}
+                onClick={() => setSelectedModel(config.id)}
+                className={`px-4 py-3 rounded-xl transition-all duration-200 font-medium text-sm ${
+                  selectedModel === config.id
+                    ? "bg-blue-500 text-white shadow-lg shadow-blue-500/30"
+                    : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600"
+                }`}
+              >
+                {config.name}
+              </button>
+            ))}
           </div>
-          
-          <div className="flex justify-center items-center space-x-2">
+        </div>
+
+        {/* Input Form */}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="relative">
+            <input
+              type="text"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Enter your prompt (e.g., 'a magical forest at sunset')"
+              className="w-full p-4 pr-36 border rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white dark:border-gray-700 dark:placeholder-gray-400 shadow-sm"
+              required
+            />
             <button
-              onClick={() => setShowModal(true)}
-              className="flex items-center space-x-2 text-gray-600 hover:text-blue-500"
+              type="submit"
+              disabled={isLoading}
+              className="absolute right-2 top-2 bottom-2 px-6 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors shadow-lg shadow-blue-500/30"
             >
-              <InfoCircledIcon className="w-5 h-5" />
-              <span>View Model Details</span>
+              {isLoading ? (
+                <div className="flex items-center space-x-2">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Generating...</span>
+                </div>
+              ) : (
+                "Generate"
+              )}
             </button>
           </div>
-        </div>
-      )}
+        </form>
+
+        {/* Error Message */}
+        {error && (
+          <div className="bg-red-50 dark:bg-red-900/30 text-red-500 dark:text-red-400 p-4 rounded-xl text-center">
+            {error}
+          </div>
+        )}
+
+        {/* Generated Image */}
+        {imageUrl && (
+          <div className="space-y-4">
+            <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-lg">
+              <div className={`relative ${getAspectRatioClass(MODEL_CONFIGS.find(config => config.id === selectedModel)?.getParams("").aspect_ratio || "1:1")} rounded-lg overflow-hidden`}>
+                <Image
+                  src={imageUrl}
+                  alt="Generated image"
+                  fill
+                  className="object-contain"
+                  sizes="(max-width: 768px) 100vw, 768px"
+                />
+              </div>
+              <div className="mt-4 flex justify-center">
+                <button
+                  onClick={() => setShowModal(true)}
+                  className="flex items-center space-x-2 text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition-colors"
+                >
+                  <InfoCircledIcon className="w-5 h-5" />
+                  <span>View Model Details</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Modal */}
       {showModal && modelParams && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-lg w-full">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-lg w-full shadow-xl">
             <div className="space-y-4">
               <div className="flex justify-between items-center">
                 <h3 className="text-lg font-semibold dark:text-white">Model Parameters</h3>
@@ -140,7 +222,7 @@ export default function ImageGenerator() {
                 <p className="font-medium dark:text-white">Model: {modelParams.model}</p>
                 <div className="space-y-1">
                   <p className="font-medium dark:text-white">Parameters:</p>
-                  <pre className="bg-gray-50 dark:bg-gray-900 p-3 rounded-md text-sm dark:text-gray-300">
+                  <pre className="bg-gray-50 dark:bg-gray-900 p-4 rounded-xl text-sm dark:text-gray-300 overflow-auto">
                     {JSON.stringify(modelParams.params, null, 2)}
                   </pre>
                 </div>
@@ -149,6 +231,6 @@ export default function ImageGenerator() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 } 
